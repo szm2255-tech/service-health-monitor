@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service Health Monitor</title>
+<style>
+:root{--bg:#0f1419;--panel:#1a2029;--text:#e6edf3;--muted:#8b98a5;--up:#2ea043;--slow:#d29922;--down:#f85149}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:20px 28px;border-bottom:1px solid #263040}
+h1{margin:0;font-size:20px}
+.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.controls{display:flex;gap:14px;align-items:center;font-size:13px;color:var(--muted)}
+button{background:#238636;color:#fff;border:0;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+main{padding:24px 28px;max-width:1100px;margin:0 auto}
+.banner{padding:14px 18px;border-radius:8px;font-weight:600;margin-bottom:20px;border:1px solid var(--muted)}
+.banner.up{background:#12261a;color:var(--up);border-color:var(--up)}
+.banner.slow{background:#2a2110;color:var(--slow);border-color:var(--slow)}
+.banner.down{background:#2d1517;color:var(--down);border-color:var(--down)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{background:var(--panel);border-radius:10px;padding:16px;border-left:5px solid var(--muted)}
+.card.UP{border-left-color:var(--up)}
+.card.SLOW{border-left-color:var(--slow)}
+.card.DOWN{border-left-color:var(--down)}
+.top{display:flex;justify-content:space-between;align-items:center}
+.name{font-weight:600}
+.url{color:var(--muted);font-size:12px;word-break:break-all;margin:4px 0 10px}
+.state{font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;color:#fff}
+.state.UP{background:var(--up)}
+.state.SLOW{background:var(--slow)}
+.state.DOWN{background:var(--down)}
+.meta{display:flex;justify-content:space-between;font-size:13px}
+.err{color:var(--down);font-size:12px;margin-top:8px;word-break:break-word}
+.spark{display:flex;align-items:flex-end;gap:2px;height:28px;margin-top:12px}
+.spark span{flex:1;background:var(--muted);min-height:3px;border-radius:1px}
+.spark span.fail{background:var(--down)}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:24px}
+.spark span{max-width:14px}</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Service Health Monitor</h1>
+    <div class="sub" id="updated">Checking...</div>
+  </div>
+  <div class="controls">
+    <label><input type="checkbox" id="auto" checked> Auto-refresh (30s)</label>
+    <button id="refresh">Refresh now</button>
+  </div>
+</header>
+<main>
+  <div id="banner" class="banner">Loading...</div>
+  <div id="grid" class="grid"></div>
+</main>
+<footer>Endpoints are defined in config/endpoints.json</footer>
+<script>
+const history = {};
+const grid = document.getElementById('grid');
+const banner = document.getElementById('banner');
+const updated = document.getElementById('updated');
+const btn = document.getElementById('refresh');
+const auto = document.getElementById('auto');
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function spark(name) {
+  const h = history[name] || [];
+  const max = Math.max(...h.map(v => v || 0), 1);
+  return '<div class="spark">' + h.map(v =>
+    v ? `<span style="height:${Math.max(8, (v / max) * 100)}%"></span>`
+      : '<span class="fail" style="height:100%"></span>'
+  ).join('') + '</div>';
+}
+
+function render(data) {
+  const rs = data.results;
+  rs.forEach(r => {
+    const h = (history[r.name] = history[r.name] || []);
+    h.push(r.ms);
+    if (h.length > 20) h.shift();
+  });
+  const down = rs.filter(r => r.state === 'DOWN').length;
+  const slow = rs.filter(r => r.state === 'SLOW').length;
+  if (down) { banner.className = 'banner down'; banner.textContent = down + ' service(s) DOWN'; }
+  else if (slow) { banner.className = 'banner slow'; banner.textContent = slow + ' service(s) SLOW'; }
+  else { banner.className = 'banner up'; banner.textContent = 'All systems operational'; }
+  grid.innerHTML = rs.map(r => `
+    <div class="card ${esc(r.state)}">
+      <div class="top"><span class="name">${esc(r.name)}</span>
+        <span class="state ${esc(r.state)}">${esc(r.state)}</span></div>
+      <div class="url">${esc(r.url)}</div>
+      <div class="meta"><span>HTTP ${r.status ?? '-'}</span><span>${r.ms ?? '-'} ms</span></div>
+      ${r.error ? `<div class="err">${esc(r.error)}</div>` : ''}
+      ${spark(r.name)}
+    </div>`).join('');
+  updated.textContent = 'Last checked: ' + new Date(data.checked_at).toLocaleTimeString();
+}
+
+async function load() {
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/status');
+    render(await res.json());
+  } catch (e) {
+    banner.className = 'banner down';
+    banner.textContent = 'Cannot reach the server: ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+btn.onclick = load;
+setInterval(() => { if (auto.checked) load(); }, 30000);
+load();
+</script>
+</body>
+</html>

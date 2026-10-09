@@ -1,0 +1,7 @@
+{
+  "endpoints": [
+    {"name": "GitHub", "url": "https://github.com", "slow_ms": 2000},
+    {"name": "GitHub API", "url": "https://api.github.com", "slow_ms": 2000},
+    {"name": "Example", "url": "https://example.com", "slow_ms": 2000}
+  ]
+}
